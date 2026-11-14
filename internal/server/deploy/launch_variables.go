@@ -95,7 +95,7 @@ func expandValues(values []string, variables map[string]any, allowUnresolved boo
 func expandScript(script string, variables map[string]any, allowUnresolved bool) (string, error) {
 	if !allowUnresolved {
 		for _, name := range placementeval.References(script) {
-			if _, ok := variables[name]; !ok && placementeval.PlatformVariable(name) {
+			if _, ok := placementeval.Lookup(variables, name); !ok && placementeval.PlatformVariable(name) {
 				return "", fmt.Errorf("template variable %s is unresolved", name)
 			}
 		}
@@ -122,7 +122,7 @@ func requireTemplateVariables(engine Engine, templateFields ...[]string) error {
 	}
 	referenced := map[string]struct{}{}
 	for _, name := range placementeval.References(values...) {
-		referenced[name] = struct{}{}
+		referenced[placementeval.Canonical(name)] = struct{}{}
 	}
 	var missing []string
 	for _, name := range required {

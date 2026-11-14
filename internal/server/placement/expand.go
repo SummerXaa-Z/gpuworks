@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 var variablePattern = regexp.MustCompile(`\$\{([A-Z][A-Z0-9_]*)\}`)
@@ -28,6 +29,31 @@ const (
 	VarMasterPort      = "MASTER_PORT"
 )
 
+// VariablePrefix is an accepted spelling of every platform variable:
+// ${GPUWORKS_API_PORT} is ${API_PORT}. Newer catalogs write the prefixed
+// names; the bare names stay valid.
+const VariablePrefix = "GPUWORKS_"
+
+// Canonical is the name a variable is stated under: the bare one.
+func Canonical(name string) string {
+	if bare, ok := strings.CutPrefix(name, VariablePrefix); ok && bare != "" {
+		return bare
+	}
+	return name
+}
+
+// Lookup finds a variable by either spelling.
+func Lookup(variables map[string]any, name string) (any, bool) {
+	if value, ok := variables[name]; ok {
+		return value, true
+	}
+	if bare := Canonical(name); bare != name {
+		value, ok := variables[bare]
+		return value, ok
+	}
+	return nil, false
+}
+
 // launchOwned are the variables only the launch can know. A placement resolver
 // may not return them: a resolver runs before a node, a port or a rank exists,
 // so a value it returned would be a guess that silently shadows the fact.
@@ -40,7 +66,7 @@ var launchOwned = map[string]struct{}{
 
 // LaunchOwned reports whether name is a variable only the launch states.
 func LaunchOwned(name string) bool {
-	_, owned := launchOwned[name]
+	_, owned := launchOwned[Canonical(name)]
 	return owned
 }
 
@@ -48,6 +74,7 @@ func LaunchOwned(name string) bool {
 // the launch-owned facts plus GPU_COUNT and TP_SIZE. A template without a
 // placement resolver can reference nothing else.
 func PlatformVariable(name string) bool {
+	name = Canonical(name)
 	return LaunchOwned(name) || name == VarGPUCount || name == VarTPSize
 }
 
@@ -75,7 +102,7 @@ func Expand(values []string, variables map[string]any, allowUnresolved bool) ([]
 				return match
 			}
 			name := variablePattern.FindStringSubmatch(match)[1]
-			replacement, ok := variables[name]
+			replacement, ok := Lookup(variables, name)
 			if !ok {
 				if !allowUnresolved {
 					expandErr = fmt.Errorf("template variable %s is unresolved", name)

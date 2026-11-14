@@ -175,3 +175,26 @@ func TestResolverCannotReturnLaunchOwnedVariables(t *testing.T) {
 		t.Fatalf("GPU_COUNT/TP_SIZE result=%v err=%v", result, err)
 	}
 }
+
+// ${GPUWORKS_NAME} is ${NAME}: newer catalogs write the prefix.
+func TestPlatformVariablesAcceptThePrefixedSpelling(t *testing.T) {
+	variables := map[string]any{VarAPIPort: int64(30000), VarTPSize: int64(2)}
+	got, err := Expand([]string{"${GPUWORKS_API_PORT}", "${API_PORT}", "tp=${GPUWORKS_TP_SIZE}"}, variables, false)
+	if err != nil || len(got) != 3 || got[0] != "30000" || got[1] != "30000" || got[2] != "tp=2" {
+		t.Fatalf("Expand() = %v, %v", got, err)
+	}
+	if _, err := Expand([]string{"${GPUWORKS_MASTER_ADDR}"}, variables, false); err == nil {
+		t.Fatal("an unresolved prefixed variable was accepted")
+	}
+	for name, want := range map[string]bool{"GPUWORKS_TP_SIZE": true, "GPUWORKS_NODE_RANK": true, "TP_SIZE": true, "GPUWORKS_": false, "GPUWORKS_PP_SIZE": false, "PP_SIZE": false} {
+		if PlatformVariable(name) != want {
+			t.Fatalf("PlatformVariable(%s) = %v", name, !want)
+		}
+	}
+	if !LaunchOwned("GPUWORKS_API_PORT") || LaunchOwned("GPUWORKS_TP_SIZE") {
+		t.Fatal("LaunchOwned ignores the prefix")
+	}
+	if Canonical("GPUWORKS_") != "GPUWORKS_" || Canonical("GPUWORKS_API_PORT") != VarAPIPort || Canonical(VarAPIPort) != VarAPIPort {
+		t.Fatal("Canonical")
+	}
+}

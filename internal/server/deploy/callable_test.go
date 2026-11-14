@@ -132,6 +132,37 @@ func TestCallableTemplateMustPlaceTheAPIPort(t *testing.T) {
 	}
 }
 
+// A newer catalog writes platform variables with the GPUWORKS_ prefix. Both
+// spellings state the same fact, in arguments and in the preparation script,
+// and an unresolved one is still refused.
+func TestTemplateVariablesAcceptThePrefixedSpelling(t *testing.T) {
+	params := Params{ModelPath: "/model", APIPort: 19001, AssignedGPUs: 1, TensorParallel: 1,
+		TemplateArgs: []string{"--model", "${GPUWORKS_MODEL_PATH}", "--host", "${API_HOST}", "--port", "${GPUWORKS_API_PORT}", "--tp", "${GPUWORKS_TP_SIZE}"}}
+	launch, err := callableLaunch(t, params, ResolveLaunchInput{PreStartScript: "echo ${GPUWORKS_API_PORT} ${API_PORT} ${HOME} ${GPUWORKS_HOME_OF_THE_SHELL}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--model", "/model", "--host", launch.Argv[3], "--port", "19001", "--tp", "1"}; !slices.Equal(launch.Argv, want) || launch.Argv[3] == "" || strings.Contains(launch.Argv[3], "$") {
+		t.Fatalf("argv=%v", launch.Argv)
+	}
+	if !strings.Contains(launch.PreStartScript, "echo 19001 19001 ${HOME} ${GPUWORKS_HOME_OF_THE_SHELL}") {
+		t.Fatalf("script=%q", launch.PreStartScript)
+	}
+	// The prefixed reference alone satisfies the engine's required variable.
+	params.TemplateArgs = []string{"--port", "${GPUWORKS_API_PORT}"}
+	if _, err := callableLaunch(t, params, ResolveLaunchInput{}); err != nil {
+		t.Fatalf("a prefixed reference was not counted: %v", err)
+	}
+	params.TemplateArgs = append(params.TemplateArgs, "--master", "${GPUWORKS_MASTER_ADDR}")
+	if _, err := callableLaunch(t, params, ResolveLaunchInput{}); err == nil || !strings.Contains(err.Error(), "MASTER_ADDR is unresolved") {
+		t.Fatalf("ResolveLaunch() = %v, want GPUWORKS_MASTER_ADDR unresolved", err)
+	}
+	params.TemplateArgs = []string{"--port", "${GPUWORKS_API_PORT}"}
+	if _, err := callableLaunch(t, params, ResolveLaunchInput{PreStartScript: "echo ${GPUWORKS_MASTER_ADDR}"}); err == nil || !strings.Contains(err.Error(), "MASTER_ADDR is unresolved") {
+		t.Fatalf("script: %v, want GPUWORKS_MASTER_ADDR unresolved", err)
+	}
+}
+
 // A single-node launch has no master. A template that names one must fail,
 // not dial an empty address.
 func TestSingleNodeLaunchHasNoMasterVariables(t *testing.T) {
