@@ -3,11 +3,12 @@ import { Alert, Button, Card, Modal, Select, Space, Switch, Table, Tag, Typograp
 import { ReloadOutlined, UploadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
-import { api, type CatalogUpdate, type ServerUpgradeStarted, type UpdateStatus } from "../../api";
+import { api, type CatalogUpdate, type OfficialInferenceCatalogResult, type OfficialInferenceCatalogSkipped, type ServerUpgradeStarted, type UpdateStatus } from "../../api";
 import { apiErrorText, productMessageText, type ProductMessage } from "../../apiError";
 import { formatTime } from "../../i18n/datetime";
 import { publishUpdateStatus } from "../../components/UpdateNotice";
 import ServerBuildSummary from "../../components/ServerBuildSummary";
+import TemplatesSkippedNotice from "./TemplatesSkippedNotice";
 import UsageReportSwitch from "./UsageReportSwitch";
 
 const { Text } = Typography;
@@ -148,14 +149,15 @@ export default function UpdatesCard() {
     const result = await api.importImageCatalogFile(file);
     return t("updates.imagesApplied", { version: result.catalog_version });
   });
-  const updateTemplates = () => apply("templates", async () => {
-    const result = await api.syncInferenceTemplates();
+  // What the last template update left out for a newer server stays on the
+  // page: a toast would be gone before it is read.
+  const [skippedTemplates, setSkippedTemplates] = useState<OfficialInferenceCatalogSkipped[]>([]);
+  const templatesApplied = (result: OfficialInferenceCatalogResult) => {
+    setSkippedTemplates(result.skipped ?? []);
     return t("updates.templatesApplied", { version: result.version, count: result.models });
-  });
-  const uploadTemplates = (file: File) => apply("templatesUpload", async () => {
-    const result = await api.uploadOfficialInferenceCatalog(file);
-    return t("updates.templatesApplied", { version: result.version, count: result.models });
-  });
+  };
+  const updateTemplates = () => apply("templates", async () => templatesApplied(await api.syncInferenceTemplates()));
+  const uploadTemplates = (file: File) => apply("templatesUpload", async () => templatesApplied(await api.uploadOfficialInferenceCatalog(file)));
 
   // A console upgrade answers once the binary is swapped; the server then
   // restarts, and the new version either answers or is rolled back.
@@ -301,6 +303,7 @@ export default function UpdatesCard() {
         {status && notChecked && !loading && <Alert type="info" showIcon message={t("updates.notChecked")} description={t("updates.notCheckedHelp")} />}
         {status && !notChecked && !status.available && !loading && <UnavailableAlert status={status} channelName={channelName(status.channel)} />}
         {status && <section aria-label={t("updates.currentBuild")}><Text strong>{t("updates.currentBuild")}</Text><ServerBuildSummary version={status.server.current} build={status.server.current_build} /></section>}
+        <TemplatesSkippedNotice skipped={skippedTemplates} />
         <Table<Row> rowKey="key" size="small" pagination={false} loading={loading}
           dataSource={status ? rowsOf(status, names) : []} columns={columns} />
         <Text type="secondary">{t("updates.serverHelp")}</Text>
